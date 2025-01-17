@@ -1,4 +1,5 @@
 <?php
+// backend file
 session_start();
 include('credentials.php');
 
@@ -93,6 +94,7 @@ function getEvents($accessToken) {
         $eventList[] = [
             'id' => $event['id'],
             'summary' => $event['summary'],
+            'description' => $event['description'], 
             'location' => $event['location'] ?? '',
             'start' => $event['start']['dateTime'],
             'end' => $event['end']['dateTime']
@@ -124,108 +126,156 @@ function getEventDetails($data, $accessToken){
     
     $response = curl_exec($curl);
     if (curl_errno($curl)) {
-        echo json_encode(['error' => curl_error($curl)]);
-        curl_close($curl);
-        return;
-    }
-    $events = json_decode($response, true);
-    
-
-
-    echo json_encode($events);
-
-
-curl_close($curl);
+            echo json_encode(['error' => curl_error($curl)]);
+            curl_close($curl);
+            return;
+        }
+        $events = json_decode($response, true);
+            echo json_encode($events);
+            curl_close($curl);
 
 
 }
 
 // Add an event to Google Calendar
 function addEvent($data, $accessToken) {
- // Decode the JSON data sent from the front-end (from AJAX)
- // Assuming $data is coming from the frontend (json_decode the JSON data sent by AJAX or similar)
-$data = json_decode($data, true);
 
-// Check if JSON decoding was successful
-if (!$data) {
-    echo json_encode(['error' => 'Invalid JSON data']);
-    return;
+    $data = json_decode($data, true);
+
+    // Check if JSON decoding was successful
+    if (!$data) {
+        echo json_encode(['error' => 'Invalid JSON data']);
+        return;
+    }
+
+    $startTime = new DateTime($data['startTime'], new DateTimeZone('UTC'));
+    $formattedStartTime = $startTime->format('Y-m-d\TH:i:sP');
+
+    $endTime = new DateTime($data['endTime'], new DateTimeZone('UTC'));
+    $formattedEndTime = $endTime->format('Y-m-d\TH:i:sP');
+
+    $curl = curl_init();
+
+    curl_setopt_array($curl, array(
+        CURLOPT_URL => 'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_ENCODING => '',
+        CURLOPT_MAXREDIRS => 10,
+        CURLOPT_TIMEOUT => 0,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+        CURLOPT_CUSTOMREQUEST => 'POST',
+        CURLOPT_POSTFIELDS => json_encode([
+            'summary' => $data['summary'],
+            'location' => $data['location'],
+            'description' => $data['description'],
+            'start' => [
+                'dateTime' => $formattedStartTime,
+                'timeZone' => 'UTC',  
+            ],
+            'end' => [
+                'dateTime' => $formattedEndTime,
+                'timeZone' => 'UTC',
+            ],
+            'attendees' => [
+                ['email' => 'testuser@gmail.com'],
+                ['email' => 'testuser1@gmail.com']
+            ],
+            'reminders' => [
+                'useDefault' => false,
+                'overrides' => [
+                    ['method' => 'email', 'minutes' => 1440],
+                    ['method' => 'popup', 'minutes' => 10],
+                ]
+            ]
+        ]),
+        CURLOPT_HTTPHEADER => array(
+            "Authorization: Bearer $accessToken", 
+            'Content-Type: application/json',
+        ),
+    ));
+
+    $response = curl_exec($curl);
+
+    // Check for cURL errors
+    if (curl_errno($curl)) {
+        echo json_encode(['error' => curl_error($curl)]);
+    } else {
+        // Check the response for any errors from the API
+        $responseDecoded = json_decode($response, true);
+
+        if (isset($responseDecoded['error'])) {
+            echo json_encode(['error' => $responseDecoded['error']['message']]);
+        } else {
+            // If no errors, return success message with the response
+            echo json_encode(['message' => 'Event created successfully', 'response' => $response]);
+        }
+    }
+    curl_close($curl);
 }
 
-// Format the start time
-$startTime = new DateTime($data['startTime']);
-$startTime->setTimezone(new DateTimeZone('Asia/Kolkata'));
-$formattedStartTime = $startTime->format('Y-m-d\TH:i:sP'); // Example: 2025-01-18T09:00:00+05:30
 
-// Format the end time
-$endTime = new DateTime($data['endTime']);
-$endTime->setTimezone(new DateTimeZone('Asia/Kolkata'));
-$formattedEndTime = $endTime->format('Y-m-d\TH:i:sP');
-// Initialize cURL session
+// Edit an event in Google Calendar
+function editEvent($data, $accessToken) {
 
-$curl = curl_init();
+ $data = json_decode($data, true);
+ // Check if JSON decoding was successful
+ if (!$data) {
+     echo json_encode(['error' => 'Invalid JSON data']);
+     return;
+ }
+ 
+ // Format the start time
+ $startTime = new DateTime($data['startTime']);
+ $startTime->setTimezone(new DateTimeZone('Asia/Kolkata'));
+ $formattedStartTime = $startTime->format('Y-m-d\TH:i:sP'); // Example: 2025-01-18T09:00:00+05:30
+ 
+ // Format the end time
+ $endTime = new DateTime($data['endTime']);
+ $endTime->setTimezone(new DateTimeZone('Asia/Kolkata'));
+ $formattedEndTime = $endTime->format('Y-m-d\TH:i:sP');
 
-curl_setopt_array($curl, array(
-    CURLOPT_URL => 'https://www.googleapis.com/calendar/v3/calendars/primary/events',
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_ENCODING => '',
-    CURLOPT_MAXREDIRS => 10,
-    CURLOPT_TIMEOUT => 0,
-    CURLOPT_FOLLOWLOCATION => true,
-    CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-    CURLOPT_CUSTOMREQUEST => 'POST',
-    CURLOPT_POSTFIELDS =>'{
-  "summary": "' . $data['summary'] . '",
+
+ $curl = curl_init();
+ 
+ curl_setopt_array($curl, array(
+   CURLOPT_URL => 'https://www.googleapis.com/calendar/v3/calendars/primary/events/'.$data['eventId'],
+   CURLOPT_RETURNTRANSFER => true,
+   CURLOPT_ENCODING => '',
+   CURLOPT_MAXREDIRS => 10,
+   CURLOPT_TIMEOUT => 0,
+   CURLOPT_FOLLOWLOCATION => true,
+   CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+   CURLOPT_CUSTOMREQUEST => 'PATCH',
+   CURLOPT_POSTFIELDS =>'{
+   "summary": "' . $data['summary'] . '",
   "location": "' . $data['location'] . '",
   "description":"' . $data['description'] . '",
-  "start": {
-    "dateTime": "'.$formattedStartTime.'",
-    "timeZone": "Asia/Kolkata"
-  },
-  "end": {
-    "dateTime":  "'.$formattedEndTime.'",
-    "timeZone": "Asia/Kolkata"
-  },
-  "attendees": [
-    {"email": "testuser@gmail.com"},
-    {"email": "testuser1@gmail.com"}
-  ],
-  "reminders": {
-    "useDefault": false,
-    "overrides": [
-      {"method": "email", "minutes": 1440},
-      {"method": "popup", "minutes": 10}
-    ]
-  }
-}
-',
-    CURLOPT_HTTPHEADER => array(
-        "Authorization: Bearer $accessToken", 
-        'Content-Type: application/json',
-    ),
-));
-
-echo $response = curl_exec($curl);
-
-// Check for cURL errors
-if (curl_errno($curl)) {
-    echo json_encode(['error' => curl_error($curl)]);
-} else {
-    // Check the response for any errors from the API
-    $responseDecoded = json_decode($response, true);
-    
-    if (isset($responseDecoded['error'])) {
-        echo json_encode(['error' => $responseDecoded['error']['message']]);
+     "start": {
+       "dateTime":"'.$formattedStartTime.'",
+       "timeZone": "Asia/Kolkata"
+     },
+     "end": {
+       "dateTime": "'.$formattedEndTime.'",
+       "timeZone": "Asia/Kolkata"
+     }
+   }',
+   CURLOPT_HTTPHEADER => array(
+     "Content-Type: application/json",
+     "Authorization: Bearer $accessToken",
+   ),
+ ));
+ 
+ $response = curl_exec($curl);
+ 
+ curl_close($curl);
+ 
+    if (curl_errno($curl)) {
+        echo json_encode(['error' => curl_error($curl)]);
     } else {
-        // If no errors, return success message with the response
-        echo json_encode(['message' => 'Event created successfully', 'response' => $response]);
+        echo json_encode(['message' => 'Event updated successfully']);
     }
 }
-
-// Close the cURL session
-curl_close($curl);
-}
-
 
 // Delete an event from Google Calendar
 function deleteEvent($eventId, $accessToken) {
